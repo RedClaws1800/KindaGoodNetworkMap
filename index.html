@@ -103,7 +103,7 @@
   <button onclick="deleteSelected()">Delete Selected</button>
   <button onclick="addDevice('Device', 1)">Add Device</button>
   <button onclick="addDevice('Switch')">Add Switch</button>
-  <button onclick="addDevice('Patch Panel')">Add Patch Panel</button>
+  <button onclick="addPatchPanel()">Add Patch Panel</button>
   <button onclick="addAVDevice()">Add AV Equipment</button>
 </div>
 
@@ -187,7 +187,6 @@
 
     const portsEl = document.createElement('div');
     portsEl.className = 'ports';
-    portsEl.style.gridTemplateColumns = 'repeat(4, 1fr)';
 
     const device = { id: deviceIdCounter++, type: 'AV Equipment', el, ports: [] };
 
@@ -209,6 +208,61 @@
       port.onclick = e => handlePortClick(device, port);
       portsEl.appendChild(port);
       device.ports.push({ el: port, used: false, direction: 'out' });
+    }
+
+    el.onclick = e => {
+      e.stopPropagation();
+      selectDevice(device);
+    };
+
+    el.appendChild(portsEl);
+    canvas.appendChild(el);
+    devices.push(device);
+    makeDraggable(el);
+  }
+
+  function addPatchPanel() {
+    const ports = parseInt(prompt('How many ports on the patch panel?', '24'));
+    if (!ports || ports < 1) return;
+
+    const el = document.createElement('div');
+    el.className = 'device';
+    el.style.left = Math.random() * 600 + 'px';
+    el.style.top = Math.random() * 300 + 'px';
+
+    const title = document.createElement('h4');
+    title.textContent = 'Patch Panel';
+    title.ondblclick = () => {
+      const name = prompt('Rename device', title.textContent);
+      if (name) title.textContent = name;
+    };
+    el.appendChild(title);
+
+    const portsEl = document.createElement('div');
+    portsEl.className = 'ports';
+
+    const device = { id: deviceIdCounter++, type: 'Patch Panel', el, ports: [] };
+
+    // Inputs
+    for (let i = 0; i < ports; i++) {
+      const port = document.createElement('div');
+      port.className = 'port';
+      port.title = `Front ${i + 1}`;
+      port.style.border = '2px solid #22c55e';
+      port.onclick = e => handlePortClick(device, port);
+      portsEl.appendChild(port);
+      device.ports.push({ el: port, used: false, direction: 'in', pair: i });
+    }
+
+    // Outputs (paired)
+    for (let i = 0; i < ports; i++) {
+      const port = document.createElement('div');
+      port.className = 'port';
+      port.title = `Rear ${i + 1}`;
+      port.style.border = '2px solid #38bdf8';
+      port.onclick = e => handlePortClick(device, port);
+      portsEl.appendChild(port);
+      device.ports.push({ el: port, used: false, direction: 'out', pair: i });
     }
 
     el.onclick = e => {
