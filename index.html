@@ -87,11 +87,6 @@
       stroke: #38bdf8;
       stroke-width: 2;
     }
-
-    line {
-      stroke: #38bdf8;
-      stroke-width: 2;
-    }
   </style>
 </head>
 <body>
@@ -102,7 +97,7 @@
   <button onclick="document.getElementById('importFile').click()">Import JSON</button>
   <button onclick="deleteSelected()">Delete Selected</button>
   <button onclick="addDevice('Device', 1)">Add Device</button>
-  <button onclick="addDevice('Switch')">Add Switch</button>
+  <button onclick="addSwitch()">Add Switch</button>
   <button onclick="addPatchPanel()">Add Patch Panel</button>
   <button onclick="addAVDevice()">Add AV Equipment</button>
 </div>
@@ -112,405 +107,249 @@
 </div>
 
 <script>
-  const canvas = document.getElementById('canvas');
-  const svg = document.getElementById('links');
-  let devices = [];
-  let selectedDevice = null;
-  let connections = [];
-  let deviceIdCounter = 1;
-  let selectedPort = null;
-  let tempLine = null;
-  const GRID = 20;
+const canvas = document.getElementById('canvas');
+const svg = document.getElementById('links');
+let devices = [];
+let connections = [];
+let selectedDevice = null;
+let selectedPort = null;
+let tempLine = null;
+let deviceIdCounter = 1;
+const GRID = 20;
 
-  function addDevice(type, fixedPorts = null) {
-    let ports = fixedPorts;
-    if (!ports) {
-      ports = parseInt(prompt(`How many ports for this ${type}?`, '8'));
-      if (!ports || ports < 1) return;
+/* ---------- BASIC DEVICE ---------- */
+function addDevice(type, fixedPorts = null) {
+  let ports = fixedPorts ?? parseInt(prompt(`How many ports?`, '8'));
+  if (!ports || ports < 1) return;
+
+  createDevice(type, ports);
+}
+
+/* ---------- SWITCH (INPUT / OUTPUT) ---------- */
+function addSwitch() {
+  const inputs = parseInt(prompt('How many INPUT ports?', '8'));
+  const outputs = parseInt(prompt('How many OUTPUT ports?', '8'));
+  if (!inputs || !outputs) return;
+
+  const device = createDevice('Switch', 0);
+
+  addPorts(device, inputs, 'in', '#22c55e');
+  addPorts(device, outputs, 'out', '#38bdf8');
+}
+
+/* ---------- AV DEVICE ---------- */
+function addAVDevice() {
+  const inputs = parseInt(prompt('How many INPUT ports?', '4'));
+  const outputs = parseInt(prompt('How many OUTPUT ports?', '4'));
+  if (!inputs || !outputs) return;
+
+  const device = createDevice('AV Equipment', 0);
+
+  addPorts(device, inputs, 'in', '#22c55e');
+  addPorts(device, outputs, 'out', '#38bdf8');
+}
+
+/* ---------- PATCH PANEL ---------- */
+function addPatchPanel() {
+  const ports = parseInt(prompt('How many ports?', '24'));
+  if (!ports) return;
+
+  const device = createDevice('Patch Panel', 0);
+  addPorts(device, ports, 'front', '#22c55e');
+  addPorts(device, ports, 'rear', '#38bdf8');
+}
+
+/* ---------- DEVICE CREATION ---------- */
+function createDevice(type, portCount) {
+  const el = document.createElement('div');
+  el.className = 'device';
+  el.style.left = Math.random() * 600 + 'px';
+  el.style.top = Math.random() * 300 + 'px';
+
+  const title = document.createElement('h4');
+  title.textContent = type;
+  title.ondblclick = () => {
+    const name = prompt('Rename device', title.textContent);
+    if (name) title.textContent = name;
+  };
+
+  const portsEl = document.createElement('div');
+  portsEl.className = 'ports';
+
+  el.appendChild(title);
+  el.appendChild(portsEl);
+  canvas.appendChild(el);
+
+  const device = { id: deviceIdCounter++, type, el, ports: [], portsEl };
+  devices.push(device);
+
+  if (portCount) addPorts(device, portCount);
+
+  el.onclick = e => {
+    e.stopPropagation();
+    selectDevice(device);
+  };
+
+  makeDraggable(el);
+  return device;
+}
+
+/* ---------- PORT CREATION ---------- */
+function addPorts(device, count, direction = null, color = null) {
+  for (let i = 0; i < count; i++) {
+    const port = document.createElement('div');
+    port.className = 'port';
+    if (color) port.style.border = `2px solid ${color}`;
+    port.title = direction ? `${direction.toUpperCase()} ${i + 1}` : `Port ${i + 1}`;
+    port.onclick = () => handlePortClick(device, port);
+    device.portsEl.appendChild(port);
+    device.ports.push({ el: port, used: false, direction });
+  }
+}
+
+/* ---------- CONNECTIONS ---------- */
+function handlePortClick(device, portEl) {
+  const port = device.ports.find(p => p.el === portEl);
+  if (port.used) return;
+
+  if (!selectedPort) {
+    selectedPort = { device, port };
+    portEl.style.outline = '2px solid #38bdf8';
+
+    tempLine = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    tempLine.setAttribute('stroke-dasharray', '4 4');
+    svg.appendChild(tempLine);
+
+    document.onmousemove = drawTempLine;
+  } else {
+    if (selectedPort.device === device) {
+      cleanupTemp();
+      alert('Cannot connect device to itself.');
+      return;
     }
-
-    const el = document.createElement('div');
-    el.className = 'device';
-    el.style.left = Math.random() * 600 + 'px';
-    el.style.top = Math.random() * 300 + 'px';
-
-    const title = document.createElement('h4');
-    title.textContent = type;
-    title.ondblclick = () => {
-      const name = prompt('Rename device', title.textContent);
-      if (name) title.textContent = name;
-    };
-    el.appendChild(title);
-
-    const portsEl = document.createElement('div');
-    portsEl.className = 'ports';
-
-    const device = { id: deviceIdCounter++, type, el, ports: [] };
-
-    for (let i = 0; i < ports; i++) {
-      const port = document.createElement('div');
-      port.className = 'port';
-      port.onclick = e => handlePortClick(device, port);
-      portsEl.appendChild(port);
-      device.ports.push({ el: port, used: false });
-    }
-
-    el.onclick = e => {
-      e.stopPropagation();
-      selectDevice(device);
-    };
-
-    el.appendChild(portsEl);
-    canvas.appendChild(el);
-    devices.push(device);
-
-    makeDraggable(el);
+    connectPorts(selectedPort, { device, port });
+    cleanupTemp();
   }
+}
 
-  function addAVDevice() {
-    const inputs = parseInt(prompt('How many INPUT ports?', '4'));
-    const outputs = parseInt(prompt('How many OUTPUT ports?', '4'));
-    if (!inputs || !outputs) return;
+function connectPorts(a, b) {
+  a.port.used = b.port.used = true;
+  a.port.el.classList.add('used');
+  b.port.el.classList.add('used');
 
-    const el = document.createElement('div');
-    el.className = 'device';
-    el.style.left = Math.random() * 600 + 'px';
-    el.style.top = Math.random() * 300 + 'px';
+  const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+  svg.appendChild(poly);
 
-    const title = document.createElement('h4');
-    title.textContent = 'AV Equipment';
-    title.ondblclick = () => {
-      const name = prompt('Rename device', title.textContent);
-      if (name) title.textContent = name;
-    };
-    el.appendChild(title);
+  connections.push({ a, b, poly });
+  updateLines();
+}
 
-    const portsEl = document.createElement('div');
-    portsEl.className = 'ports';
+function drawTempLine(e) {
+  if (!tempLine) return;
 
-    const device = { id: deviceIdCounter++, type: 'AV Equipment', el, ports: [] };
+  const ra = selectedPort.port.el.getBoundingClientRect();
+  const ca = canvas.getBoundingClientRect();
 
-    for (let i = 0; i < inputs; i++) {
-      const port = document.createElement('div');
-      port.className = 'port';
-      port.title = `Input ${i + 1}`;
-      port.style.border = '2px solid #22c55e';
-      port.onclick = e => handlePortClick(device, port);
-      portsEl.appendChild(port);
-      device.ports.push({ el: port, used: false, direction: 'in' });
-    }
+  const x1 = ra.left + ra.width / 2 - ca.left;
+  const y1 = ra.top + ra.height / 2 - ca.top;
+  const x2 = Math.round((e.clientX - ca.left) / GRID) * GRID;
+  const y2 = Math.round((e.clientY - ca.top) / GRID) * GRID;
+  const midX = Math.round((x1 + x2) / 2 / GRID) * GRID;
 
-    for (let i = 0; i < outputs; i++) {
-      const port = document.createElement('div');
-      port.className = 'port';
-      port.title = `Output ${i + 1}`;
-      port.style.border = '2px solid #38bdf8';
-      port.onclick = e => handlePortClick(device, port);
-      portsEl.appendChild(port);
-      device.ports.push({ el: port, used: false, direction: 'out' });
-    }
+  tempLine.setAttribute('points', `${x1},${y1} ${midX},${y1} ${midX},${y2} ${x2},${y2}`);
+}
 
-    el.onclick = e => {
-      e.stopPropagation();
-      selectDevice(device);
+function cleanupTemp() {
+  if (tempLine) tempLine.remove();
+  if (selectedPort) selectedPort.port.el.style.outline = '';
+  tempLine = selectedPort = null;
+  document.onmousemove = null;
+}
+
+/* ---------- DRAGGING ---------- */
+function makeDraggable(el) {
+  let ox, oy;
+  el.onmousedown = e => {
+    if (selectedPort) return;
+    ox = e.offsetX;
+    oy = e.offsetY;
+
+    document.onmousemove = ev => {
+      el.style.left = ev.pageX - ox + 'px';
+      el.style.top = ev.pageY - oy + 'px';
+      updateLines();
     };
 
-    el.appendChild(portsEl);
-    canvas.appendChild(el);
-    devices.push(device);
-    makeDraggable(el);
-  }
+    document.onmouseup = () => document.onmousemove = null;
+  };
+}
 
-  function addPatchPanel() {
-    const ports = parseInt(prompt('How many ports on the patch panel?', '24'));
-    if (!ports || ports < 1) return;
-
-    const el = document.createElement('div');
-    el.className = 'device';
-    el.style.left = Math.random() * 600 + 'px';
-    el.style.top = Math.random() * 300 + 'px';
-
-    const title = document.createElement('h4');
-    title.textContent = 'Patch Panel';
-    title.ondblclick = () => {
-      const name = prompt('Rename device', title.textContent);
-      if (name) title.textContent = name;
-    };
-    el.appendChild(title);
-
-    const portsEl = document.createElement('div');
-    portsEl.className = 'ports';
-
-    const device = { id: deviceIdCounter++, type: 'Patch Panel', el, ports: [] };
-
-    // Inputs
-    for (let i = 0; i < ports; i++) {
-      const port = document.createElement('div');
-      port.className = 'port';
-      port.title = `Front ${i + 1}`;
-      port.style.border = '2px solid #22c55e';
-      port.onclick = e => handlePortClick(device, port);
-      portsEl.appendChild(port);
-      device.ports.push({ el: port, used: false, direction: 'in', pair: i });
-    }
-
-    // Outputs (paired)
-    for (let i = 0; i < ports; i++) {
-      const port = document.createElement('div');
-      port.className = 'port';
-      port.title = `Rear ${i + 1}`;
-      port.style.border = '2px solid #38bdf8';
-      port.onclick = e => handlePortClick(device, port);
-      portsEl.appendChild(port);
-      device.ports.push({ el: port, used: false, direction: 'out', pair: i });
-    }
-
-    el.onclick = e => {
-      e.stopPropagation();
-      selectDevice(device);
-    };
-
-    el.appendChild(portsEl);
-    canvas.appendChild(el);
-    devices.push(device);
-    makeDraggable(el);
-  }
-
-  function handlePortClick(device, portEl) {
-    const port = device.ports.find(p => p.el === portEl);
-    if (port.used) return;
-
-    if (!selectedPort) {
-      selectedPort = { device, port };
-      portEl.style.outline = '2px solid #38bdf8';
-
-      tempLine = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-      tempLine.setAttribute('stroke-dasharray', '4 4');
-      tempLine.setAttribute('stroke-dasharray', '4 4');
-      svg.appendChild(tempLine);
-
-      document.onmousemove = e => drawTempLine(e);
-    } else {
-      if (selectedPort.device === device) {
-        cleanupTempLine();
-        alert('A device cannot connect to itself.');
-        return;
-      }
-
-      connectPorts(selectedPort, { device, port });
-      cleanupTempLine();
-    }
-  }
-
-  function connectPorts(a, b) {
-    a.port.used = true;
-    b.port.used = true;
-    a.port.el.classList.add('used');
-    b.port.el.classList.add('used');
-
-    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-    svg.appendChild(poly);
-
-    const connection = { a, b, poly };
-    connections.push(connection);
-    updateLines();
-  }
-
-  function updateLines() {
-    connections.forEach(c => {
-      const ra = c.a.port.el.getBoundingClientRect();
-      const rb = c.b.port.el.getBoundingClientRect();
-      const ca = canvas.getBoundingClientRect();
-
-      const x1 = ra.left + ra.width / 2 - ca.left;
-      const y1 = ra.top + ra.height / 2 - ca.top;
-      const x2 = rb.left + rb.width / 2 - ca.left;
-      const y2 = rb.top + rb.height / 2 - ca.top;
-
-      const midX = Math.round((x1 + x2) / 2 / GRID) * GRID;
-
-      c.poly.setAttribute(
-        'points',
-        `${x1},${y1} ${midX},${y1} ${midX},${y2} ${x2},${y2}`
-      );
-    });
-  }
-
-  function makeDraggable(el) {
-    let offsetX, offsetY;
-
-    el.onmousedown = e => {
-      if (selectedPort) return; // disable dragging while drawing cable
-
-      offsetX = e.offsetX;
-      offsetY = e.offsetY;
-
-      document.onmousemove = ev => {
-        el.style.left = ev.pageX - offsetX + 'px';
-        el.style.top = ev.pageY - offsetY + 'px';
-        updateLines();
-      };
-
-      document.onmouseup = () => {
-        document.onmousemove = null;
-      };
-    };
-  }
-
-  window.addEventListener('resize', updateLines);
-
-  function selectDevice(device) {
-    selectedDevice = device;
-    devices.forEach(d => d.el.style.outline = '');
-    if (device) device.el.style.outline = '2px solid #38bdf8';
-  }
-
-  function deleteSelected() {
-    if (!selectedDevice) return;
-
-    connections = connections.filter(c => {
-      if (c.a.device === selectedDevice || c.b.device === selectedDevice) {
-        c.poly.remove();
-        c.a.port.used = false;
-        c.b.port.used = false;
-        c.a.port.el.classList.remove('used');
-        c.b.port.el.classList.remove('used');
-        return false;
-      }
-      return true;
-    });
-
-    selectedDevice.el.remove();
-    devices = devices.filter(d => d !== selectedDevice);
-    selectedDevice = null;
-  }
-
-  function exportJSON() {
-    const data = {
-      devices: devices.map(d => ({
-        id: d.id,
-        type: d.type,
-        name: d.el.querySelector('h4').textContent,
-        x: parseInt(d.el.style.left),
-        y: parseInt(d.el.style.top),
-        ports: d.ports.length
-      })),
-      connections: connections.map(c => ({
-        a: { deviceId: c.a.device.id, portIndex: c.a.device.ports.indexOf(c.a.port) },
-        b: { deviceId: c.b.device.id, portIndex: c.b.device.ports.indexOf(c.b.port) }
-      }))
-    };
-
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'topology.json';
-    link.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function importJSON(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = e => loadFromData(JSON.parse(e.target.result));
-    reader.readAsText(file);
-  }
-
-  function loadFromData(data) {
-    // clear existing
-    devices.forEach(d => d.el.remove());
-    connections.forEach(c => c.poly.remove());
-    devices = [];
-    connections = [];
-    selectedDevice = null;
-    deviceIdCounter = 1;
-
-    const deviceMap = {};
-
-    data.devices.forEach(d => {
-      const el = document.createElement('div');
-      el.className = 'device';
-      el.style.left = d.x + 'px';
-      el.style.top = d.y + 'px';
-
-      const title = document.createElement('h4');
-      title.textContent = d.name;
-      title.ondblclick = () => {
-        const name = prompt('Rename device', title.textContent);
-        if (name) title.textContent = name;
-      };
-      el.appendChild(title);
-
-      const portsEl = document.createElement('div');
-      portsEl.className = 'ports';
-
-      const device = { id: d.id, type: d.type, el, ports: [] };
-
-      for (let i = 0; i < d.ports; i++) {
-        const port = document.createElement('div');
-        port.className = 'port';
-        port.onclick = e => handlePortClick(device, port);
-        portsEl.appendChild(port);
-        device.ports.push({ el: port, used: false });
-      }
-
-      el.onclick = e => {
-        e.stopPropagation();
-        selectDevice(device);
-      };
-
-      el.appendChild(portsEl);
-      canvas.appendChild(el);
-      makeDraggable(el);
-
-      devices.push(device);
-      deviceMap[d.id] = device;
-      deviceIdCounter = Math.max(deviceIdCounter, d.id + 1);
-    });
-
-    data.connections.forEach(c => {
-      const da = deviceMap[c.a.deviceId];
-      const db = deviceMap[c.b.deviceId];
-      if (!da || !db) return;
-
-      connectPorts(
-        { device: da, port: da.ports[c.a.portIndex] },
-        { device: db, port: db.ports[c.b.portIndex] }
-      );
-    });
-  }
-  function drawTempLine(e) {
-    if (!selectedPort || !tempLine) return;
-
-    const ra = selectedPort.port.el.getBoundingClientRect();
+/* ---------- UTILITIES ---------- */
+function updateLines() {
+  connections.forEach(c => {
+    const ra = c.a.port.el.getBoundingClientRect();
+    const rb = c.b.port.el.getBoundingClientRect();
     const ca = canvas.getBoundingClientRect();
 
     const x1 = ra.left + ra.width / 2 - ca.left;
     const y1 = ra.top + ra.height / 2 - ca.top;
-
-    const rawX = e.clientX - ca.left;
-    const rawY = e.clientY - ca.top;
-
-    const x2 = Math.round(rawX / GRID) * GRID;
-    const y2 = Math.round(rawY / GRID) * GRID;
-
+    const x2 = rb.left + rb.width / 2 - ca.left;
+    const y2 = rb.top + rb.height / 2 - ca.top;
     const midX = Math.round((x1 + x2) / 2 / GRID) * GRID;
 
-    tempLine.setAttribute(
-      'points',
-      `${x1},${y1} ${midX},${y1} ${midX},${y2} ${x2},${y2}`
-    );
-  }
-  function cleanupTempLine() {
-    if (tempLine) tempLine.remove();
-    if (selectedPort) selectedPort.port.el.style.outline = '';
-    tempLine = null;
-    selectedPort = null;
-    document.onmousemove = null;
-  }
+    c.poly.setAttribute('points', `${x1},${y1} ${midX},${y1} ${midX},${y2} ${x2},${y2}`);
+  });
+}
+
+function selectDevice(device) {
+  selectedDevice = device;
+  devices.forEach(d => d.el.style.outline = '');
+  if (device) device.el.style.outline = '2px solid #38bdf8';
+}
+
+function deleteSelected() {
+  if (!selectedDevice) return;
+  connections = connections.filter(c => {
+    if (c.a.device === selectedDevice || c.b.device === selectedDevice) {
+      c.poly.remove();
+      return false;
+    }
+    return true;
+  });
+  selectedDevice.el.remove();
+  devices = devices.filter(d => d !== selectedDevice);
+  selectedDevice = null;
+}
+
+/* ---------- EXPORT / IMPORT ---------- */
+function exportJSON() {
+  const data = {
+    devices: devices.map(d => ({
+      id: d.id,
+      type: d.type,
+      name: d.el.querySelector('h4').textContent,
+      x: parseInt(d.el.style.left),
+      y: parseInt(d.el.style.top),
+      ports: d.ports.length
+    })),
+    connections: connections.map(c => ({
+      a: { deviceId: c.a.device.id, portIndex: c.a.device.ports.indexOf(c.a.port) },
+      b: { deviceId: c.b.device.id, portIndex: c.b.device.ports.indexOf(c.b.port) }
+    }))
+  };
+
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'topology.json';
+  link.click();
+}
+
+function importJSON(event) {
+  const reader = new FileReader();
+  reader.onload = e => location.reload() || loadFromData(JSON.parse(e.target.result));
+  reader.readAsText(event.target.files[0]);
+}
 </script>
 
 </body>
